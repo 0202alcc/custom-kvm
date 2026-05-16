@@ -1,0 +1,28 @@
+[workspace]
+members = []
+
+[package]
+name = "custom-kvm"
+version = "0.1.0"
+edition = "2021"
+
+# We will define our two separate executables here
+[[bin]]
+name = "kvm-server"
+path = "src/bin/server.rs"
+
+[[bin]]
+name = "kvm-client"
+path = "src/bin/client.rs"
+
+[dependencies]
+# Cross-platform serialization made incredibly fast
+serde = { version = "1.0", features = ["derive"] }
+bincode = "1.3"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+evdev = "0.12"
+ctrlc = "3.4"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = "0.23"
