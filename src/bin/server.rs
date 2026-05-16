@@ -9,7 +9,7 @@ const LINUX_SCREEN_HEIGHT: i32 = 1080;
 
 fn main() -> std::io::Result<()> {
     let socket = UdpSocket::bind("0.0.0.0:8080")?;
-    let client_address = "client address goes here"; 
+    let client_address = "0.0.0.0:8080"; 
 
     let device = match find_mouse_device() {
         Some(dev) => dev,
