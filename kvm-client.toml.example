@@ -1,0 +1,10 @@
+# KVM Client Configuration
+# Copy this file to kvm-client.toml and edit as needed
+
+# Address to bind the UDP socket to (listen on this address for events from server)
+# Default: "0.0.0.0:8080"
+bind_addr = "0.0.0.0:8080"
+
+# Logging level: "debug", "info", "warn", or "error"
+# Default: "info"
+log_level = "info"

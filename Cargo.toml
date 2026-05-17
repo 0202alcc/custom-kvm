@@ -19,6 +19,11 @@ path = "src/bin/client.rs"
 # Cross-platform serialization made incredibly fast
 serde = { version = "1.0", features = ["derive"] }
 bincode = "1.3"
+# Logging and structured output
+log = "0.4"
+env_logger = "0.10"
+# Configuration file parsing
+toml = "0.8"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 evdev = "0.12"

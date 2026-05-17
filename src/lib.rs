@@ -1,6 +1,15 @@
 use serde::{Serialize, Deserialize};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+pub mod error;
+pub use error::{Error, Result};
+
+pub mod logging;
+
+pub mod config;
+
+pub mod keycodes;
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum KvmEvent {
     MouseMove { dx: i32, dy: i32 },
     MouseAbsMove { x: i32, y: i32 }, // Ensure this line exists here!

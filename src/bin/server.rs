@@ -1,65 +1,162 @@
 use std::net::UdpSocket;
 use std::sync::{Arc, Mutex};
 use std::panic;
-use custom_kvm::KvmEvent;
+use custom_kvm::{KvmEvent, config::ServerConfig, logging};
 use evdev::{InputEventKind, RelativeAxisType, EventType};
 
-const LINUX_SCREEN_WIDTH: i32 = 1920;
-const LINUX_SCREEN_HEIGHT: i32 = 1080;
+/// Holds both mouse and keyboard input devices
+struct InputDevices {
+    mouse: Option<evdev::Device>,
+    keyboard: Option<evdev::Device>,
+}
 
-fn main() -> std::io::Result<()> {
-    let socket = UdpSocket::bind("0.0.0.0:8080")?;
-    let client_address = ""; 
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize logging
+    logging::init_logging("info")?;
 
-    let device = match find_mouse_device() {
-        Some(dev) => dev,
-        None => std::process::exit(1),
-    };
+    // Load configuration
+    let config = ServerConfig::load("kvm-server.toml").unwrap_or_else(|e| {
+        log::warn!("Config file not found or invalid ({}), using defaults", e);
+        ServerConfig::default()
+    });
 
-    // Wrap the device so it can be shared safely with the crash/signal handlers
-    let shared_device = Arc::new(Mutex::new(device));
+    log::info!("Starting KVM server");
+    log::info!("Server config: bind_addr={}, client_addr={}, screen={}x{}",
+        config.bind_addr, config.client_addr, config.screen_width, config.screen_height);
+
+    let socket = UdpSocket::bind(&config.bind_addr)?;
+    let client_address = &config.client_addr;
+
+    let input_devices = find_input_devices()
+        .ok_or("No mouse or keyboard device found. Please ensure they are connected.")?;
+
+    if input_devices.mouse.is_some() {
+        log::info!("Mouse device found and initialized");
+    }
+    if input_devices.keyboard.is_some() {
+        log::info!("Keyboard device found and initialized");
+    }
+
+    // Wrap the devices so they can be shared safely with the crash/signal handlers
+    let shared_devices = Arc::new(Mutex::new(input_devices));
 
     // --- 1. SET UP THE CTRL+C SIGNAL HANDLER ---
-    let d_ctrlc = Arc::clone(&shared_device);
+    let d_ctrlc = Arc::clone(&shared_devices);
     ctrlc::set_handler(move || {
-        println!("\n🛑 Intercepted exit signal! Safely releasing mouse...");
-        if let Ok(mut dev) = d_ctrlc.lock() {
-            let _ = dev.ungrab(); // Force ungrab back to OS
+        log::info!("Received CTRL+C signal, safely releasing devices...");
+        if let Ok(mut devices) = d_ctrlc.lock() {
+            if let Some(ref mut dev) = devices.mouse {
+                let _ = dev.ungrab();
+            }
         }
         std::process::exit(0);
-    }).expect("Error setting Ctrl-C handler");
+    })?;
 
     // --- 2. SET UP THE PANIC HOOK (FOR CODE CRASHES) ---
-    let d_panic = Arc::clone(&shared_device);
+    let d_panic = Arc::clone(&shared_devices);
     panic::set_hook(Box::new(move |panic_info| {
-        eprintln!("💥 Code panicked: {:?}", panic_info);
-        eprintln!("Safely releasing mouse before exit...");
-        if let Ok(mut dev) = d_panic.lock() {
-            let _ = dev.ungrab();
+        log::error!("Code panicked: {:?}", panic_info);
+        log::info!("Safely releasing devices before exit...");
+        if let Ok(mut devices) = d_panic.lock() {
+            if let Some(ref mut dev) = devices.mouse {
+                let _ = dev.ungrab();
+            }
         }
     }));
 
     // --- KVM STATE VARIABLES ---
-    let mut virtual_x = LINUX_SCREEN_WIDTH / 2;
-    let mut virtual_y = LINUX_SCREEN_HEIGHT / 2;
+    let mut virtual_x = config.screen_width / 2;
+    let mut virtual_y = config.screen_height / 2;
     let mut is_controlling_mac = false;
 
-    println!("KVM Edge Detection active. Move mouse past right edge to switch to Mac.");
+    log::info!("KVM Edge Detection active. Move mouse past right edge to switch to Mac.");
 
     loop {
-        // Lock the device briefly to fetch the incoming events
-        let events = {
-            let mut dev = shared_device.lock().unwrap();
-            dev.fetch_events().unwrap().collect::<Vec<_>>()
-        };
+        // Lock the devices briefly to fetch the incoming events
+        let mut all_events: Vec<_> = Vec::new();
+        {
+            let mut devices = match shared_devices.lock() {
+                Ok(d) => d,
+                Err(e) => {
+                    log::error!("Failed to acquire device lock: {}", e);
+                    continue;
+                }
+            };
 
-        for event in events {
+            // Fetch events from mouse device
+            if let Some(ref mut mouse) = devices.mouse {
+                match mouse.fetch_events() {
+                    Ok(iter) => {
+                        all_events.extend(iter);
+                    }
+                    Err(e) => {
+                        log::debug!("Failed to fetch mouse events: {}", e);
+                    }
+                };
+            }
+
+            // Fetch events from keyboard device
+            if let Some(ref mut keyboard) = devices.keyboard {
+                match keyboard.fetch_events() {
+                    Ok(iter) => {
+                        all_events.extend(iter);
+                    }
+                    Err(e) => {
+                        log::debug!("Failed to fetch keyboard events: {}", e);
+                    }
+                };
+            }
+        }
+
+        for event in all_events {
             let mut dx = 0;
             let mut dy = 0;
 
             match event.kind() {
                 InputEventKind::RelAxis(RelativeAxisType::REL_X) => dx = event.value(),
                 InputEventKind::RelAxis(RelativeAxisType::REL_Y) => dy = event.value(),
+                InputEventKind::Key(key) => {
+                    let keycode = key.code() as u16;
+                    let is_down = event.value() != 0;
+
+                    // Check if this is a mouse button event
+                    if let Some(button) = map_keycode_to_button(keycode) {
+                        log::debug!("Captured mouse button event: button={}, is_down={}", button, is_down);
+
+                        let button_event = KvmEvent::MouseButton { button, is_down };
+                        match bincode::serialize(&button_event) {
+                            Ok(serialized) => {
+                                if let Err(e) = socket.send_to(&serialized, client_address) {
+                                    log::error!("Failed to send mouse button event to client: {}", e);
+                                } else {
+                                    log::info!("Sent mouse button event: button={}, is_down={}", button, is_down);
+                                }
+                            }
+                            Err(e) => {
+                                log::error!("Serialization error for mouse button event: {}", e);
+                            }
+                        }
+                        continue;
+                    }
+
+                    // If not a mouse button, treat as keyboard event
+                    log::debug!("Captured keyboard event: key={:?}, is_down={}", keycode, is_down);
+
+                    let key_event = KvmEvent::Key { keycode, is_down };
+                    match bincode::serialize(&key_event) {
+                        Ok(serialized) => {
+                            if let Err(e) = socket.send_to(&serialized, client_address) {
+                                log::error!("Failed to send keyboard event to client: {}", e);
+                            } else {
+                                log::info!("Sent keyboard event to client: keycode={}, is_down={}", keycode, is_down);
+                            }
+                        }
+                        Err(e) => {
+                            log::error!("Serialization error for keyboard event: {}", e);
+                        }
+                    }
+                    continue;
+                }
                 _ => {}
             }
 
@@ -67,57 +164,144 @@ fn main() -> std::io::Result<()> {
 
             virtual_x += dx;
             virtual_y += dy;
-            virtual_y = virtual_y.clamp(0, LINUX_SCREEN_HEIGHT);
+            virtual_y = virtual_y.clamp(0, config.screen_height);
 
             if !is_controlling_mac {
-                virtual_x = virtual_x.clamp(0, LINUX_SCREEN_WIDTH);
+                virtual_x = virtual_x.clamp(0, config.screen_width);
 
-                if virtual_x >= LINUX_SCREEN_WIDTH {
-                    println!("🔄 Transitioning control to Mac!");
-                    
+                if virtual_x >= config.screen_width {
+                    log::info!("Transitioning control to Mac!");
+
                     // Lock and Grab
-                    shared_device.lock().unwrap().grab().expect("Failed to grab mouse");
+                    {
+                        match shared_devices.lock() {
+                            Ok(mut devices) => {
+                                if let Some(ref mut dev) = devices.mouse {
+                                    if let Err(e) = dev.grab() {
+                                        log::error!("Failed to grab mouse: {}", e);
+                                        continue;
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                log::error!("Failed to acquire device lock: {}", e);
+                                continue;
+                            }
+                        }
+                    }
                     is_controlling_mac = true;
-                    
+
                     let edge_entry = KvmEvent::MouseAbsMove { x: 0, y: virtual_y };
-                    socket.send_to(&bincode::serialize(&edge_entry).unwrap(), client_address)?;
+                    match bincode::serialize(&edge_entry) {
+                        Ok(serialized) => {
+                            if let Err(e) = socket.send_to(&serialized, client_address) {
+                                log::error!("Failed to send event to client: {}", e);
+                            } else {
+                                log::debug!("Sent absolute mouse move to client: x=0, y={}", virtual_y);
+                            }
+                        }
+                        Err(e) => {
+                            log::error!("Serialization error: {}", e);
+                        }
+                    }
                 }
             } else {
                 let move_ev = KvmEvent::MouseMove { dx, dy };
-                socket.send_to(&bincode::serialize(&move_ev).unwrap(), client_address)?;
+                match bincode::serialize(&move_ev) {
+                    Ok(serialized) => {
+                        if let Err(e) = socket.send_to(&serialized, client_address) {
+                            log::error!("Failed to send event to client: {}", e);
+                        } else {
+                            log::debug!("Sent relative mouse move to client: dx={}, dy={}", dx, dy);
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("Serialization error: {}", e);
+                    }
+                }
 
                 if virtual_x < 0 {
-                    println!("🔄 Returning control to Linux!");
-                    
+                    log::info!("Returning control to Linux!");
+
                     // Lock and Ungrab
-                    shared_device.lock().unwrap().ungrab().expect("Failed to ungrab mouse");
+                    {
+                        match shared_devices.lock() {
+                            Ok(mut devices) => {
+                                if let Some(ref mut dev) = devices.mouse {
+                                    if let Err(e) = dev.ungrab() {
+                                        log::error!("Failed to ungrab mouse: {}", e);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                log::error!("Failed to acquire device lock: {}", e);
+                            }
+                        }
+                    }
                     is_controlling_mac = false;
-                    virtual_x = LINUX_SCREEN_WIDTH - 10;
+                    virtual_x = config.screen_width - 10;
                 }
             }
         }
     }
 }
 
-fn find_mouse_device() -> Option<evdev::Device> {
-    // evdev::enumerate() automatically crawls /dev/input/
+/// Maps Linux mouse button keycodes to button IDs
+/// BTN_LEFT = 0x110 → button 0
+/// BTN_RIGHT = 0x111 → button 1
+/// BTN_MIDDLE = 0x112 → button 2
+fn map_keycode_to_button(keycode: u16) -> Option<u8> {
+    match keycode {
+        0x110 => Some(0), // BTN_LEFT
+        0x111 => Some(1), // BTN_RIGHT
+        0x112 => Some(2), // BTN_MIDDLE
+        _ => None,
+    }
+}
+
+fn find_input_devices() -> Option<InputDevices> {
+    let mut mouse_device = None;
+    let mut keyboard_device = None;
+
+    // Enumerate all input devices
     for (_path, device) in evdev::enumerate() {
-        // Check if the device reports Relative movements (like a mouse)
-        if let Some(_supported_events) = device.supported_events().into_iter().next() {
-            if device.supported_events().contains(EventType::RELATIVE) {
-                
-                // Verify it specifically has X and Y axes to rule out odd scroll wheels
-                if let Some(rel_axes) = device.supported_relative_axes() {
-                    if rel_axes.contains(RelativeAxisType::REL_X) && rel_axes.contains(RelativeAxisType::REL_Y) {
-                        println!(
-                            "🎯 Auto-detected mouse: \"{}\"", 
-                            device.name().unwrap_or("Unknown Device")
-                        );
-                        return Some(device);
-                    }
+        let device_name = device.name().unwrap_or("Unknown Device");
+        let supported_events = device.supported_events();
+
+        // Check if this device has both RELATIVE (mouse) and KEY (keyboard) events
+        let has_relative = supported_events.contains(EventType::RELATIVE);
+        let has_key = supported_events.contains(EventType::KEY);
+
+        // Check for mouse devices first (RELATIVE with REL_X, REL_Y)
+        if mouse_device.is_none() && has_relative {
+            if let Some(rel_axes) = device.supported_relative_axes() {
+                if rel_axes.contains(RelativeAxisType::REL_X) && rel_axes.contains(RelativeAxisType::REL_Y) {
+                    log::debug!("Auto-detected mouse device: \"{}\"", device_name);
+                    mouse_device = Some(device);
+                    continue;
                 }
             }
         }
+
+        // Check for keyboard devices (KEY events, but not combo devices already used as mouse)
+        if keyboard_device.is_none() && has_key && mouse_device.is_none() {
+            // Only use pure keyboard devices (not mice with buttons)
+            // We check this by verifying it has KEY events but we haven't already
+            // grabbed it as a mouse device
+            if let Some(_keys) = device.supported_keys() {
+                log::debug!("Auto-detected keyboard device: \"{}\"", device_name);
+                keyboard_device = Some(device);
+            }
+        }
     }
-    None
+
+    // Return Some if we found at least one device
+    if mouse_device.is_some() || keyboard_device.is_some() {
+        Some(InputDevices {
+            mouse: mouse_device,
+            keyboard: keyboard_device,
+        })
+    } else {
+        None
+    }
 }
