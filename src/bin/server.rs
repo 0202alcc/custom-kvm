@@ -185,10 +185,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             virtual_y = virtual_y.clamp(0, config.screen_height);
 
             if !is_controlling_mac {
-                virtual_x = virtual_x.clamp(0, config.screen_width);
-
-                if virtual_x >= config.screen_width {
-                    log::info!("Transitioning control to Mac!");
+                // Check boundary BEFORE clamping to allow proper transition detection
+                if virtual_x > config.screen_width {
+                    log::info!("Transitioning control to Mac! (virtual_x={} > screen_width={})", virtual_x, config.screen_width);
 
                     // Lock and Grab
                     {
@@ -209,19 +208,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     is_controlling_mac = true;
 
-                    let edge_entry = KvmEvent::MouseAbsMove { x: 0, y: virtual_y };
+                    // Send cursor to far right edge of Mac screen (0, y) or slightly left to allow movement back
+                    let edge_entry = KvmEvent::MouseAbsMove { x: 1, y: virtual_y.clamp(0, config.screen_height) };
                     match bincode::serialize(&edge_entry) {
                         Ok(serialized) => {
                             if let Err(e) = socket.send_to(&serialized, client_address) {
                                 log::error!("Failed to send event to client: {}", e);
                             } else {
-                                log::debug!("Sent absolute mouse move to client: x=0, y={}", virtual_y);
+                                log::debug!("Sent absolute mouse move to client at edge: x=1, y={}", virtual_y);
                             }
                         }
                         Err(e) => {
                             log::error!("Serialization error: {}", e);
                         }
                     }
+                    // Don't reset virtual_x - let it stay high so we can detect return movement
+                } else {
+                    // Normal operation within Linux screen bounds
+                    virtual_x = virtual_x.clamp(0, config.screen_width);
                 }
             } else {
                 let move_ev = KvmEvent::MouseMove { dx, dy };
@@ -302,11 +306,14 @@ fn find_input_devices() -> Option<InputDevices> {
             }
         }
 
-        // Check for keyboard devices (KEY events, but not combo devices already used as mouse)
-        if keyboard_device.is_none() && has_key && mouse_device.is_none() {
-            // Only use pure keyboard devices (not mice with buttons)
-            // We check this by verifying it has KEY events but we haven't already
-            // grabbed it as a mouse device
+        // Check for keyboard devices (KEY events) - independent of mouse search
+        if keyboard_device.is_none() && has_key {
+            // Skip if this device is also our mouse (it will have both RELATIVE and KEY)
+            if has_relative && mouse_device.is_some() {
+                // This is likely a combo device we already grabbed as mouse, skip it
+                continue;
+            }
+
             if let Some(_keys) = device.supported_keys() {
                 log::debug!("Auto-detected keyboard device: \"{}\"", device_name);
                 keyboard_device = Some(device);
