@@ -1,6 +1,7 @@
 // Platform-gated client implementation: macOS uses CoreGraphics for injection; other OSes run a no-op listener.
 
 use std::net::UdpSocket;
+#[allow(unused_imports)]
 use custom_kvm::KvmEvent;
 
 #[cfg(target_os = "macos")]
@@ -37,151 +38,148 @@ fn run_client() -> Result<(), Box<dyn std::error::Error>> {
                     KvmEvent::MouseMove { dx, dy } => {
                         log::debug!("Processing MouseMove: dx={}, dy={}", dx, dy);
                         // Use CoreGraphics to move mouse relatively
-                        let source = CGEventSource::new(CGEventSourceStateID::CombinedSessionState)
-                            .ok_or("Failed to create event source")?;
-                        let current_event = CGEvent::new(source.clone())
-                            .ok_or("Failed to get current mouse event")?;
-                        let mut point = current_event.location();
+                        match CGEventSource::new(CGEventSourceStateID::CombinedSessionState) {
+                            Ok(source) => {
+                                match CGEvent::new(source.clone()) {
+                                    Ok(current_event) => {
+                                        let mut point = current_event.location();
+                                        point.x += dx as f64;
+                                        point.y += dy as f64;
 
-                        point.x += dx as f64;
-                        point.y += dy as f64;
-
-                        let move_event = CGEvent::new_mouse_event(source, CGEventType::MouseMoved, point, CGMouseButton::Left)
-                            .ok_or("Failed to create mouse move event")?;
-                        move_event.post(core_graphics::event::CGEventTapLocation::HID);
-                        log::debug!("Mouse moved relatively to: {}, {}", point.x, point.y);
+                                        match CGEvent::new_mouse_event(source, CGEventType::MouseMoved, point, CGMouseButton::Left) {
+                                            Ok(move_event) => {
+                                                move_event.post(core_graphics::event::CGEventTapLocation::HID);
+                                                log::debug!("Mouse moved relatively to: {}, {}", point.x, point.y);
+                                            }
+                                            Err(_) => log::error!("Failed to create mouse move event"),
+                                        }
+                                    }
+                                    Err(_) => log::error!("Failed to get current mouse event"),
+                                }
+                            }
+                            Err(_) => log::error!("Failed to create event source"),
+                        }
                     }
                     KvmEvent::MouseAbsMove { x, y } => {
                         log::debug!("Processing MouseAbsMove: x={}, y={}", x, y);
-                        let source = CGEventSource::new(CGEventSourceStateID::CombinedSessionState)
-                            .ok_or("Failed to create event source")?;
-                        let point = core_graphics::geometry::CGPoint::new(x as f64, y as f64);
-
-                        let move_event = CGEvent::new_mouse_event(source, CGEventType::MouseMoved, point, CGMouseButton::Left)
-                            .ok_or("Failed to create mouse move event")?;
-                        move_event.post(core_graphics::event::CGEventTapLocation::HID);
-                        log::info!("Moved cursor to: {}, {}", x, y);
+                        match CGEventSource::new(CGEventSourceStateID::CombinedSessionState) {
+                            Ok(source) => {
+                                let point = core_graphics::geometry::CGPoint::new(x as f64, y as f64);
+                                match CGEvent::new_mouse_event(source, CGEventType::MouseMoved, point, CGMouseButton::Left) {
+                                    Ok(move_event) => {
+                                        move_event.post(core_graphics::event::CGEventTapLocation::HID);
+                                        log::info!("Moved cursor to: {}, {}", x, y);
+                                    }
+                                    Err(_) => log::error!("Failed to create mouse move event"),
+                                }
+                            }
+                            Err(_) => log::error!("Failed to create event source"),
+                        }
                     }
                     KvmEvent::MouseButton { button, is_down } => {
                         log::info!("MouseButton event received: button={}, is_down={}", button, is_down);
 
-                        // Create event source for button injection
-                        let source = CGEventSource::new(CGEventSourceStateID::CombinedSessionState)
-                            .ok_or("Failed to create event source")?;
+                        match CGEventSource::new(CGEventSourceStateID::CombinedSessionState) {
+                            Ok(source) => {
+                                match CGEvent::new(source.clone()) {
+                                    Ok(current_event) => {
+                                        let point = current_event.location();
 
-                        // Get current mouse position
-                        let current_event = CGEvent::new(source.clone())
-                            .ok_or("Failed to get current mouse event")?;
-                        let point = current_event.location();
+                                        let (mouse_button, event_type) = match button {
+                                            0 => {
+                                                // Left mouse button
+                                                if is_down {
+                                                    (CGMouseButton::Left, CGEventType::LeftMouseDown)
+                                                } else {
+                                                    (CGMouseButton::Left, CGEventType::LeftMouseUp)
+                                                }
+                                            }
+                                            1 => {
+                                                // Right mouse button
+                                                if is_down {
+                                                    (CGMouseButton::Right, CGEventType::RightMouseDown)
+                                                } else {
+                                                    (CGMouseButton::Right, CGEventType::RightMouseUp)
+                                                }
+                                            }
+                                            2 => {
+                                                // Middle mouse button
+                                                if is_down {
+                                                    (CGMouseButton::Center, CGEventType::OtherMouseDown)
+                                                } else {
+                                                    (CGMouseButton::Center, CGEventType::OtherMouseUp)
+                                                }
+                                            }
+                                            _ => {
+                                                log::warn!("Unknown mouse button: {}", button);
+                                                return Ok(());
+                                            }
+                                        };
 
-                        // Map button ID to CGMouseButton and determine event type
-                        let (mouse_button, event_type) = match button {
-                            0 => {
-                                // Left mouse button
-                                let evt_type = if is_down {
-                                    CGEventType::LeftMouseDown
-                                } else {
-                                    CGEventType::LeftMouseUp
-                                };
-                                (CGMouseButton::Left, evt_type)
+                                        match CGEvent::new_mouse_event(source, event_type, point, mouse_button) {
+                                            Ok(button_event) => {
+                                                button_event.post(core_graphics::event::CGEventTapLocation::HID);
+                                                log::info!("Posted mouse button event: button={}, is_down={}", button, is_down);
+                                            }
+                                            Err(_) => log::error!("Failed to create mouse button event"),
+                                        }
+                                    }
+                                    Err(_) => log::error!("Failed to get current mouse event"),
+                                }
                             }
-                            1 => {
-                                // Right mouse button
-                                let evt_type = if is_down {
-                                    CGEventType::RightMouseDown
-                                } else {
-                                    CGEventType::RightMouseUp
-                                };
-                                (CGMouseButton::Right, evt_type)
-                            }
-                            2 => {
-                                // Middle mouse button
-                                let evt_type = if is_down {
-                                    CGEventType::OtherMouseDown
-                                } else {
-                                    CGEventType::OtherMouseUp
-                                };
-                                (CGMouseButton::Center, evt_type)
-                            }
-                            _ => {
-                                // Unknown button ID
-                                log::warn!("Unknown mouse button ID: {}", button);
-                                continue;
-                            }
-                        };
-
-                        // Create and post the button event
-                        match CGEvent::new_mouse_event(source, event_type, point, mouse_button) {
-                            Ok(button_event) => {
-                                button_event.post(core_graphics::event::CGEventTapLocation::HID);
-                                let button_name = match button {
-                                    0 => "left",
-                                    1 => "right",
-                                    2 => "middle",
-                                    _ => "unknown",
-                                };
-                                let action = if is_down { "pressed" } else { "released" };
-                                log::info!("Mouse {} button {} at ({}, {})", button_name, action, point.x, point.y);
-                            }
-                            Err(e) => {
-                                log::error!("Failed to create mouse button event: {:?}", e);
-                            }
+                            Err(_) => log::error!("Failed to create event source"),
                         }
                     }
                     KvmEvent::Key { keycode, is_down } => {
-                        log::debug!("Key event received: keycode={}, is_down={}", keycode, is_down);
+                        log::debug!("Received keyboard event: keycode={}, is_down={}", keycode, is_down);
 
-                        // Translate Linux keycode to macOS virtual keycode
                         match custom_kvm::keycodes::linux_to_macos_keycode(keycode) {
                             Some(mac_keycode) => {
-                                // Create event source for keyboard injection
                                 match CGEventSource::new(CGEventSourceStateID::CombinedSessionState) {
                                     Ok(source) => {
-                                        // Create keyboard event using CGEvent::new_keyboard_event()
-                                        match CGEvent::new_keyboard_event(source, mac_keycode, is_down) {
+                                        // Convert u32 to u16 for CGEvent::new_keyboard_event
+                                        let keycode_u16 = if mac_keycode <= u16::MAX as u32 {
+                                            mac_keycode as u16
+                                        } else {
+                                            log::warn!("Keycode {} out of u16 range", mac_keycode);
+                                            return Ok(());
+                                        };
+
+                                        match CGEvent::new_keyboard_event(source, keycode_u16, is_down) {
                                             Ok(key_event) => {
-                                                // Post event to the HID system
                                                 key_event.post(core_graphics::event::CGEventTapLocation::HID);
-                                                let action = if is_down { "pressed" } else { "released" };
-                                                log::info!("Posted keyboard event: linux_keycode={}, mac_keycode={}, action={}",
-                                                    keycode, mac_keycode, action);
+                                                log::info!("Posted keyboard event: keycode={}, mac_keycode={}, is_down={}", 
+                                                    keycode, mac_keycode, is_down);
                                             }
-                                            Err(e) => {
-                                                log::error!("Failed to create keyboard event for keycode {}: {:?}", keycode, e);
-                                            }
+                                            Err(_) => log::error!("Failed to create keyboard event"),
                                         }
                                     }
-                                    Err(e) => {
-                                        log::error!("Failed to create event source for keyboard event: {:?}", e);
-                                    }
+                                    Err(_) => log::error!("Failed to create event source"),
                                 }
                             }
                             None => {
-                                log::warn!("Unknown or unsupported Linux keycode: {} (no macOS equivalent)", keycode);
+                                log::warn!("Unknown Linux keycode: {}", keycode);
                             }
                         }
                     }
                     KvmEvent::MouseScroll { delta } => {
                         log::debug!("MouseScroll event received: delta={}", delta);
-                        // Silently ignore for now
+                        // Scroll support not yet implemented
                     }
                 }
             }
             Err(e) => {
-                log::error!("Failed to decode packet from {}: {}", src, e);
+                log::error!("Failed to deserialize event: {}", e);
             }
         }
     }
 }
 
-#[cfg(target_os = "macos")]
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_client()
-}
-
-// Non-macOS stub: compile-time safe listener that logs received events but does no injection.
 #[cfg(not(target_os = "macos"))]
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn run_client() -> Result<(), Box<dyn std::error::Error>> {
+    log::info!("KVM Client (non-macOS) - running in no-op listener mode");
+    log::info!("This client only supports macOS for input injection");
+    
     // Initialize logging
     custom_kvm::logging::init_logging("info")?;
 
@@ -189,25 +187,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = custom_kvm::config::ClientConfig::load("kvm-client.toml")
         .unwrap_or_else(|_| custom_kvm::config::ClientConfig::default());
 
-    log::info!("KVM Client (non-macOS) starting");
-    log::debug!("Binding to: {}", config.bind_addr);
+    log::info!("Binding to: {}", config.bind_addr);
 
     let socket = UdpSocket::bind(&config.bind_addr)?;
     let mut buf = [0u8; 1024];
 
-    log::info!("KVM Client (non-macOS) listening for inputs from remote desktop (injection disabled)...");
+    log::info!("Listening on {} (events received but not injected - macOS only)", config.bind_addr);
 
     loop {
-        let (amt, src) = socket.recv_from(&mut buf)?;
-        log::debug!("Received {} bytes from {}", amt, src);
-
-        match bincode::deserialize::<KvmEvent>(&buf[..amt]) {
-            Ok(decoded) => {
-                log::info!("Received event from {}: {:?}", src, decoded);
+        match socket.recv_from(&mut buf) {
+            Ok((amt, src)) => {
+                log::debug!("Received {} bytes from {} (not processing on non-macOS)", amt, src);
             }
             Err(e) => {
-                log::error!("Failed to decode packet from {}: {}", src, e);
+                log::error!("Socket error: {}", e);
             }
         }
     }
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run_client()
 }

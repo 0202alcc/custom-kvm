@@ -1,5 +1,6 @@
 use std::net::UdpSocket;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::panic;
 use custom_kvm::{KvmEvent, config::ServerConfig, logging};
 use evdev::{InputEventKind, RelativeAxisType, EventType};
@@ -40,16 +41,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Wrap the devices so they can be shared safely with the crash/signal handlers
     let shared_devices = Arc::new(Mutex::new(input_devices));
 
+    // Create a shutdown flag to signal clean exit (avoids deadlock in signal handler)
+    let shutdown = Arc::new(AtomicBool::new(false));
+
     // --- 1. SET UP THE CTRL+C SIGNAL HANDLER ---
-    let d_ctrlc = Arc::clone(&shared_devices);
+    let shutdown_flag = Arc::clone(&shutdown);
     ctrlc::set_handler(move || {
-        log::info!("Received CTRL+C signal, safely releasing devices...");
-        if let Ok(mut devices) = d_ctrlc.lock() {
-            if let Some(ref mut dev) = devices.mouse {
-                let _ = dev.ungrab();
-            }
-        }
-        std::process::exit(0);
+        log::info!("Received CTRL+C signal, initiating graceful shutdown...");
+        shutdown_flag.store(true, Ordering::SeqCst);
+        // Don't try to lock here - main loop will exit and cleanup
     })?;
 
     // --- 2. SET UP THE PANIC HOOK (FOR CODE CRASHES) ---
@@ -59,6 +59,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         log::info!("Safely releasing devices before exit...");
         if let Ok(mut devices) = d_panic.lock() {
             if let Some(ref mut dev) = devices.mouse {
+                let _ = dev.ungrab();
+            }
+            if let Some(ref mut dev) = devices.keyboard {
                 let _ = dev.ungrab();
             }
         }
@@ -72,6 +75,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::info!("KVM Edge Detection active. Move mouse past right edge to switch to Mac.");
 
     loop {
+        // Check for shutdown signal before processing
+        if shutdown.load(Ordering::SeqCst) {
+            log::info!("Shutdown signal received, cleaning up...");
+            // Gracefully ungrab devices before exit
+            if let Ok(mut devices) = shared_devices.lock() {
+                if let Some(ref mut dev) = devices.mouse {
+                    let _ = dev.ungrab();
+                }
+                if let Some(ref mut dev) = devices.keyboard {
+                    let _ = dev.ungrab();
+                }
+            }
+            log::info!("Devices released, exiting cleanly.");
+            break;
+        }
         // Lock the devices briefly to fetch the incoming events
         let mut all_events: Vec<_> = Vec::new();
         {
@@ -244,6 +262,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
+    Ok(())
 }
 
 /// Maps Linux mouse button keycodes to button IDs
