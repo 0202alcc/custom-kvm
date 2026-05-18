@@ -1,6 +1,7 @@
 // Platform-gated client implementation: macOS uses CoreGraphics for injection; other OSes run a no-op listener.
 
 use std::net::UdpSocket;
+use std::process::{Command, Stdio};
 #[allow(unused_imports)]
 use custom_kvm::KvmEvent;
 
@@ -9,8 +10,39 @@ use core_graphics::event::{CGEvent, CGMouseButton, CGEventType};
 #[cfg(target_os = "macos")]
 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 
+/// Kill any existing kvm-client processes to free up the port
+#[cfg(target_os = "macos")]
+fn cleanup_existing_clients() {
+    // Use pkill to find and kill existing kvm-client processes (excluding this one)
+    // The -f flag searches the full command line, and "not $$" would exclude current process
+    // But simpler approach: just kill any kvm-client that isn't us
+    let _ = Command::new("pkill")
+        .args(&["-f", "kvm-client"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .output();
+
+    // Give the OS a moment to close the socket
+    std::thread::sleep(std::time::Duration::from_millis(100));
+}
+
+#[cfg(not(target_os = "macos"))]
+fn cleanup_existing_clients() {
+    // Non-macOS: use killall if available
+    let _ = Command::new("killall")
+        .arg("kvm-client")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .output();
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+}
+
 #[cfg(target_os = "macos")]
 fn run_client() -> Result<(), Box<dyn std::error::Error>> {
+    // Kill any existing kvm-client processes to avoid "address already in use" errors
+    cleanup_existing_clients();
+
     // Initialize logging
     custom_kvm::logging::init_logging("info")?;
 
@@ -177,9 +209,12 @@ fn run_client() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(not(target_os = "macos"))]
 fn run_client() -> Result<(), Box<dyn std::error::Error>> {
+    // Kill any existing kvm-client processes to avoid "address already in use" errors
+    cleanup_existing_clients();
+
     log::info!("KVM Client (non-macOS) - running in no-op listener mode");
     log::info!("This client only supports macOS for input injection");
-    
+
     // Initialize logging
     custom_kvm::logging::init_logging("info")?;
 

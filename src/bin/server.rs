@@ -46,10 +46,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // --- 1. SET UP THE CTRL+C SIGNAL HANDLER ---
     let shutdown_flag = Arc::clone(&shutdown);
+    let d_graceful = Arc::clone(&shared_devices);
     ctrlc::set_handler(move || {
         log::info!("Received CTRL+C signal, initiating graceful shutdown...");
         shutdown_flag.store(true, Ordering::SeqCst);
-        // Don't try to lock here - main loop will exit and cleanup
+
+        // Try to ungrab devices, but don't wait if we can't get the lock
+        // (The OS will clean up anyway when the process exits)
+        if let Ok(mut devices) = d_graceful.try_lock() {
+            if let Some(ref mut dev) = devices.mouse {
+                let _ = dev.ungrab();
+            }
+            if let Some(ref mut dev) = devices.keyboard {
+                let _ = dev.ungrab();
+            }
+        }
+
+        // Exit immediately - don't wait for main loop to notice the flag
+        std::process::exit(0);
     })?;
 
     // --- 2. SET UP THE PANIC HOOK (FOR CODE CRASHES) ---
