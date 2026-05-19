@@ -59,6 +59,9 @@ fn run_client() -> Result<(), Box<dyn std::error::Error>> {
 
     log::info!("KVM Client (macOS) listening for inputs from remote desktop...");
 
+    // Track pressed mouse buttons to send Drag events when appropriate
+    let mut button_state = [false; 3]; // left, right, middle
+
     loop {
         let (amt, src) = socket.recv_from(&mut buf)?;
         log::debug!("Received {} bytes from {}", amt, src);
@@ -78,7 +81,18 @@ fn run_client() -> Result<(), Box<dyn std::error::Error>> {
                                         point.x += dx as f64;
                                         point.y += dy as f64;
 
-                                        match CGEvent::new_mouse_event(source, CGEventType::MouseMoved, point, CGMouseButton::Left) {
+                                        // Choose dragged event type if a button is held
+                                        let evt_type = if button_state[0] {
+                                            CGEventType::LeftMouseDragged
+                                        } else if button_state[1] {
+                                            CGEventType::RightMouseDragged
+                                        } else if button_state[2] {
+                                            CGEventType::OtherMouseDragged
+                                        } else {
+                                            CGEventType::MouseMoved
+                                        };
+
+                                        match CGEvent::new_mouse_event(source, evt_type, point, CGMouseButton::Left) {
                                             Ok(move_event) => {
                                                 move_event.post(core_graphics::event::CGEventTapLocation::HID);
                                                 log::debug!("Mouse moved relatively to: {}, {}", point.x, point.y);
@@ -97,7 +111,19 @@ fn run_client() -> Result<(), Box<dyn std::error::Error>> {
                         match CGEventSource::new(CGEventSourceStateID::CombinedSessionState) {
                             Ok(source) => {
                                 let point = core_graphics::geometry::CGPoint::new(x as f64, y as f64);
-                                match CGEvent::new_mouse_event(source, CGEventType::MouseMoved, point, CGMouseButton::Left) {
+
+                                // Choose dragged event type if a button is held
+                                let evt_type = if button_state[0] {
+                                    CGEventType::LeftMouseDragged
+                                } else if button_state[1] {
+                                    CGEventType::RightMouseDragged
+                                } else if button_state[2] {
+                                    CGEventType::OtherMouseDragged
+                                } else {
+                                    CGEventType::MouseMoved
+                                };
+
+                                match CGEvent::new_mouse_event(source, evt_type, point, CGMouseButton::Left) {
                                     Ok(move_event) => {
                                         move_event.post(core_graphics::event::CGEventTapLocation::HID);
                                         log::info!("Moved cursor to: {}, {}", x, y);
@@ -110,6 +136,11 @@ fn run_client() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     KvmEvent::MouseButton { button, is_down } => {
                         log::info!("MouseButton event received: button={}, is_down={}", button, is_down);
+
+                        // Update local button state so subsequent MouseMove events can be treated as drags
+                        if (button as usize) < button_state.len() {
+                            button_state[button as usize] = is_down;
+                        }
 
                         match CGEventSource::new(CGEventSourceStateID::CombinedSessionState) {
                             Ok(source) => {
