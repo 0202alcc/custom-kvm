@@ -83,6 +83,10 @@ impl ClientConfig {
     }
 }
 
+pub fn default_config() -> ServerConfig {
+    ServerConfig::default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
