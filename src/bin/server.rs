@@ -200,8 +200,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             if !is_controlling_mac {
                 // Check boundary BEFORE clamping to allow proper transition detection
-                if virtual_x > config.screen_width {
-                    log::info!("Transitioning control to Mac! (virtual_x={} > screen_width={})", virtual_x, config.screen_width);
+                // Use >= with a one-pixel threshold to make transitions reliable
+                if virtual_x >= (config.screen_width - 1) {
+                    log::info!("Transitioning control to Mac! (virtual_x={} >= screen_width-1={})", virtual_x, config.screen_width - 1);
 
                     // Lock and Grab
                     {
@@ -301,37 +302,41 @@ fn find_input_devices() -> Option<InputDevices> {
     let mut keyboard_device = None;
 
     // Enumerate all input devices
-    for (_path, device) in evdev::enumerate() {
-        let device_name = device.name().unwrap_or("Unknown Device");
+    for (path, device) in evdev::enumerate() {
+        // Capture device name as an owned String so we can use it after moving `device` into storage
+        let device_name = device.name().map(|s| s.to_string()).unwrap_or_else(|| "Unknown Device".to_string());
         let supported_events = device.supported_events();
 
         // Check if this device has both RELATIVE (mouse) and KEY (keyboard) events
         let has_relative = supported_events.contains(EventType::RELATIVE);
         let has_key = supported_events.contains(EventType::KEY);
 
-        // Check for mouse devices first (RELATIVE with REL_X, REL_Y)
-        if mouse_device.is_none() && has_relative {
+        // Determine capabilities without moving `device`
+        let mut is_mouse_candidate = false;
+        let mut is_keyboard_candidate = false;
+
+        if has_relative {
             if let Some(rel_axes) = device.supported_relative_axes() {
                 if rel_axes.contains(RelativeAxisType::REL_X) && rel_axes.contains(RelativeAxisType::REL_Y) {
-                    log::debug!("Auto-detected mouse device: \"{}\"", device_name);
-                    mouse_device = Some(device);
-                    continue;
+                    is_mouse_candidate = true;
                 }
             }
         }
 
-        // Check for keyboard devices (KEY events) - independent of mouse search
-        if keyboard_device.is_none() && has_key {
-            // Skip if this device is also our mouse (it will have both RELATIVE and KEY)
-            if has_relative && mouse_device.is_some() {
-                // This is likely a combo device we already grabbed as mouse, skip it
-                continue;
+        if has_key {
+            if device.supported_keys().is_some() {
+                is_keyboard_candidate = true;
             }
+        }
 
-            if let Some(_keys) = device.supported_keys() {
-                log::debug!("Auto-detected keyboard device: \"{}\"", device_name);
-                keyboard_device = Some(device);
-            }
+        // Assign the device to one of the slots. If it is a combo device (mouse+keyboard)
+        // prefer assigning it to `mouse_device` since mouse.fetch_events() will also return key events.
+        if is_mouse_candidate && mouse_device.is_none() {
+            log::debug!("Auto-detected mouse device: \"{}\" (path={:?})", device_name, path);
+            mouse_device = Some(device);
+        } else if is_keyboard_candidate && keyboard_device.is_none() {
+            log::debug!("Auto-detected keyboard device: \"{}\" (path={:?})", device_name, path);
+            keyboard_device = Some(device);
         }
     }
 

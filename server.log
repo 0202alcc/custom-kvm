@@ -1,0 +1,10 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running `target/debug/kvm-server`
+[2026-05-19T23:21:12.821Z INFO  kvm_server] Starting KVM server
+[2026-05-19T23:21:12.821Z INFO  kvm_server] Server config: bind_addr=0.0.0.0:8080, client_addr=0.0.0.0:8080, screen=1920x1080
+[2026-05-19T23:21:12.821Z DEBUG kvm_server] Auto-detected mouse device: "Logitech G305"
+[2026-05-19T23:21:12.821Z DEBUG kvm_server] Auto-detected keyboard device: "OBINS OBINS
+    AnnePro2"
+[2026-05-19T23:21:13.107Z INFO  kvm_server] Mouse device found and initialized
+[2026-05-19T23:21:13.107Z INFO  kvm_server] Keyboard device found and initialized
+[2026-05-19T23:21:13.107Z INFO  kvm_server] KVM Edge Detection active. Move mouse past right edge to switch to Mac.
