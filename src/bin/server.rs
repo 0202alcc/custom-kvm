@@ -194,9 +194,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             if dx == 0 && dy == 0 { continue; }
 
+            if dx != 0 || dy != 0 {
+                log::debug!("Mouse delta detected: dx={}, dy={}, virtual_x(before)={}", dx, dy, virtual_x);
+            }
+
             virtual_x += dx;
             virtual_y += dy;
             virtual_y = virtual_y.clamp(0, config.screen_height);
+
+            log::debug!("virtual_x after update = {}", virtual_x);
 
             if !is_controlling_mac {
                 // Check boundary BEFORE clamping to allow proper transition detection

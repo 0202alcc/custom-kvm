@@ -1,12 +1,19 @@
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
      Running `target/debug/kvm-server`
-[2026-05-19T23:50:03.879Z INFO  kvm_server] Starting KVM server
-[2026-05-19T23:50:03.879Z INFO  kvm_server] Server config: bind_addr=0.0.0.0:8080, client_addr=0.0.0.0:8080, screen=1920x1080
-[2026-05-19T23:50:03.879Z DEBUG kvm_server] Auto-detected keyboard device: "Bose QC45 (AVRCP)" (path="/dev/input/event21")
-[2026-05-19T23:50:03.879Z DEBUG kvm_server] Auto-detected mouse device: "Logitech G305" (path="/dev/input/event11")
-[2026-05-19T23:50:03.879Z DEBUG kvm_server] Opened second handle for keyboard on same device: "/dev/input/event11"
-[2026-05-19T23:50:04.114Z INFO  kvm_server] Mouse device found and initialized
-[2026-05-19T23:50:04.114Z INFO  kvm_server] Keyboard device found and initialized
-[2026-05-19T23:50:04.114Z INFO  kvm_server] KVM Edge Detection active. Move mouse past right edge to switch to Mac.
-[2026-05-19T23:50:05.051Z INFO  kvm_server] Transitioning control to Mac! (virtual_x=1922 >= screen_width-1=1919)
-[2026-05-19T23:50:05.051Z DEBUG kvm_server] Sent absolute mouse move to client at edge: x=1, y=376
+[2026-05-19T23:53:18.829Z INFO  kvm_server] Starting KVM server
+[2026-05-19T23:53:18.829Z INFO  kvm_server] Server config: bind_addr=0.0.0.0:8080, client_addr=0.0.0.0:8080, screen=1920x1080
+[2026-05-19T23:53:18.829Z DEBUG kvm_server] Skipping keyboard candidate "Bose QC45 (AVRCP)" (keys=53, headset=true)
+[2026-05-19T23:53:18.846Z DEBUG kvm_server] Auto-detected mouse device: "Logitech G305" (path="/dev/input/event11")
+[2026-05-19T23:53:18.846Z DEBUG kvm_server] Skipping keyboard candidate "OBINS OBINS
+    AnnePro2" (keys=16, headset=false)
+[2026-05-19T23:53:18.872Z DEBUG kvm_server] Skipping keyboard candidate "OBINS OBINS
+    AnnePro2 Mouse" (keys=3, headset=false)
+[2026-05-19T23:53:18.887Z DEBUG kvm_server] Auto-detected keyboard device: "OBINS OBINS
+    AnnePro2 Keyboard" (path="/dev/input/event8")
+[2026-05-19T23:53:18.887Z DEBUG kvm_server] Skipping keyboard candidate "OBINS OBINS
+    AnnePro2 Consumer Control" (keys=8, headset=false)
+[2026-05-19T23:53:19.155Z DEBUG kvm_server] Skipping keyboard candidate "Power Button" (keys=2, headset=false)
+[2026-05-19T23:53:19.167Z DEBUG kvm_server] Skipping keyboard candidate "Power Button" (keys=2, headset=false)
+[2026-05-19T23:53:19.174Z INFO  kvm_server] Mouse device found and initialized
+[2026-05-19T23:53:19.174Z INFO  kvm_server] Keyboard device found and initialized
+[2026-05-19T23:53:19.174Z INFO  kvm_server] KVM Edge Detection active. Move mouse past right edge to switch to Mac.
