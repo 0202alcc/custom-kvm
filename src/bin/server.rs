@@ -324,8 +324,17 @@ fn find_input_devices() -> Option<InputDevices> {
         }
 
         if has_key {
-            if device.supported_keys().is_some() {
-                is_keyboard_candidate = true;
+            if let Some(keys) = device.supported_keys() {
+                // Heuristic: require a reasonable number of keys to be a real keyboard
+                // and exclude common Bluetooth headsets/media devices by name.
+                let key_count = keys.iter().count();
+                let name_lc = device_name.to_lowercase();
+                let is_likely_headset = name_lc.contains("bose") || name_lc.contains("headset") || name_lc.contains("bluetooth") || name_lc.contains("avrcp") || name_lc.contains("mediakey");
+                if key_count >= 30 && !is_likely_headset {
+                    is_keyboard_candidate = true;
+                } else {
+                    log::debug!("Skipping keyboard candidate \"{}\" (keys={}, headset={})", device_name, key_count, is_likely_headset);
+                }
             }
         }
 
@@ -333,22 +342,10 @@ fn find_input_devices() -> Option<InputDevices> {
         // prefer assigning it to `mouse_device` since mouse.fetch_events() will also return key events.
         if is_mouse_candidate && mouse_device.is_none() {
             log::debug!("Auto-detected mouse device: \"{}\" (path={:?})", device_name, path);
-            // If device also supports keys, try to open a second handle to use as keyboard_device.
-            if is_keyboard_candidate {
-                match evdev::Device::open(&path) {
-                    Ok(reopened) => {
-                        log::debug!("Opened second handle for keyboard on same device: {:?}", path);
-                        mouse_device = Some(device);
-                        keyboard_device = Some(reopened);
-                    }
-                    Err(e) => {
-                        log::debug!("Failed to open second handle for keyboard on {:?}: {}. Falling back to single handle.", path, e);
-                        mouse_device = Some(device);
-                    }
-                }
-            } else {
-                mouse_device = Some(device);
-            }
+            // Assign the device as mouse; keyboard events will be read from this handle
+            // if no separate keyboard_device is found later. This avoids opening multiple
+            // handles that may conflict on some systems.
+            mouse_device = Some(device);
         } else if is_keyboard_candidate && keyboard_device.is_none() {
             log::debug!("Auto-detected keyboard device: \"{}\" (path={:?})", device_name, path);
             keyboard_device = Some(device);
