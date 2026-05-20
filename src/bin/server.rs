@@ -119,7 +119,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(ref mut mouse) = devices.mouse {
                 match mouse.fetch_events() {
                     Ok(iter) => {
-                        all_events.extend(iter);
+                        let mouse_events: Vec<_> = iter.collect();
+                        if !mouse_events.is_empty() {
+                            log::debug!("Fetched {} mouse events", mouse_events.len());
+                            all_events.extend(mouse_events);
+                        }
                     }
                     Err(e) => {
                         log::debug!("Failed to fetch mouse events: {}", e);
@@ -131,7 +135,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(ref mut keyboard) = devices.keyboard {
                 match keyboard.fetch_events() {
                     Ok(iter) => {
-                        all_events.extend(iter);
+                        let kb_events: Vec<_> = iter.collect();
+                        if !kb_events.is_empty() {
+                            log::debug!("Fetched {} keyboard events", kb_events.len());
+                            all_events.extend(kb_events);
+                        }
                     }
                     Err(e) => {
                         log::debug!("Failed to fetch keyboard events: {}", e);
@@ -333,14 +341,12 @@ fn find_input_devices() -> Option<InputDevices> {
             if let Some(keys) = device.supported_keys() {
                 // Heuristic: require a reasonable number of keys to be a real keyboard
                 // and exclude common Bluetooth headsets/media devices by name.
-                let key_count = keys.iter().count();
-                let name_lc = device_name.to_lowercase();
-                let is_likely_headset = name_lc.contains("bose") || name_lc.contains("headset") || name_lc.contains("bluetooth") || name_lc.contains("avrcp") || name_lc.contains("mediakey");
-                if key_count >= 30 && !is_likely_headset {
-                    is_keyboard_candidate = true;
-                } else {
-                    log::debug!("Skipping keyboard candidate \"{}\" (keys={}, headset={})", device_name, key_count, is_likely_headset);
-                }
+let key_count = keys.iter().count();
+if key_count >= 20 {
+    is_keyboard_candidate = true;
+} else {
+    log::debug!("Skipping keyboard candidate \"{}\" (keys={})", device_name, key_count);
+}
             }
         }
 
