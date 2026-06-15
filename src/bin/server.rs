@@ -221,14 +221,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // Lock and Grab
                     {
                         match shared_devices.lock() {
-                            Ok(mut devices) => {
-                                if let Some(ref mut dev) = devices.mouse {
-                                    if let Err(e) = dev.grab() {
-                                        log::error!("Failed to grab mouse: {}", e);
-                                        continue;
-                                    }
-                                }
-                            }
+Ok(mut devices) => {
+    log::debug!("Successfully acquired device lock.");
+    if let Some(ref mut dev) = devices.mouse {
+        if let Err(e) = dev.grab() {
+            log::error!("Failed to grab mouse: {}", e);
+            continue;
+        } else {
+            log::info!("Mouse device successfully grabbed.");
+        }
+    }
+}
                             Err(e) => {
                                 log::error!("Failed to acquire device lock: {}", e);
                                 continue;

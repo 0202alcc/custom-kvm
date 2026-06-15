@@ -25,7 +25,7 @@ Create a file named `kvm-server.toml` in the working directory to configure the 
   - `"192.168.1.50:9000"` - Listen on specific IP and port
 
 #### `client_addr` (string)
-- **Default:** `"0.0.0.0:8080"`
+- **Default:** `"127.0.0.1:8080"`
 - **Description:** IP address and port of the macOS client to send events to
 - **Important:** This MUST match the IP address and port the client is listening on
 - **Examples:**
@@ -107,7 +107,8 @@ log_level = "info"
 If no configuration file is present, the system uses built-in defaults:
 
 ```bash
-# Server uses defaults (0.0.0.0:8080 → 0.0.0.0:8080 at 1920x1080)
+# Server uses defaults (0.0.0.0:8080 → 127.0.0.1:8080 at 1920x1080)
+# Please use .example.toml files to configure actual network addresses.
 ./target/release/kvm-server
 
 # Client uses defaults (0.0.0.0:8080)

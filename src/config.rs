@@ -21,7 +21,7 @@ impl Default for ServerConfig {
     fn default() -> Self {
         ServerConfig {
             bind_addr: "0.0.0.0:8080".to_string(),
-            client_addr: "0.0.0.0:8080".to_string(),
+            client_addr: "127.0.0.1:8080".to_string(),
             screen_width: 1920,
             screen_height: 1080,
             log_level: "info".to_string(),
@@ -95,7 +95,7 @@ mod tests {
     fn test_server_config_default() {
         let config = ServerConfig::default();
         assert_eq!(config.bind_addr, "0.0.0.0:8080");
-        assert_eq!(config.client_addr, "0.0.0.0:8080");
+        assert_eq!(config.client_addr, "127.0.0.1:8080");
         assert_eq!(config.screen_width, 1920);
         assert_eq!(config.screen_height, 1080);
         assert_eq!(config.log_level, "info");

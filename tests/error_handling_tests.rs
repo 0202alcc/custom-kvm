@@ -7,7 +7,7 @@ fn test_config_defaults_when_file_missing() {
     assert!(config.is_ok(), "Config should not error on missing file");
     let cfg = config.unwrap();
     assert_eq!(cfg.bind_addr, "0.0.0.0:8080");
-    assert_eq!(cfg.client_addr, "0.0.0.0:8080");
+    assert_eq!(cfg.client_addr, "127.0.0.1:8080");
 }
 
 /// Test that client config returns defaults when file doesn't exist
@@ -114,7 +114,7 @@ fn test_all_kvm_event_types_roundtrip() {
 fn test_server_config_defaults() {
     let config = ServerConfig::default();
     assert_eq!(config.bind_addr, "0.0.0.0:8080");
-    assert_eq!(config.client_addr, "0.0.0.0:8080");
+    assert_eq!(config.client_addr, "127.0.0.1:8080");
     assert_eq!(config.screen_width, 1920);
     assert_eq!(config.screen_height, 1080);
     assert_eq!(config.log_level, "info");

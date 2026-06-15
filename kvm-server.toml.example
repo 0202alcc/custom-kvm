@@ -8,7 +8,7 @@ bind_addr = "0.0.0.0:8080"
 # Address of the KVM client to send input events to
 # Change this to point to your macOS client machine's IP
 # Example: "192.168.1.100:8080" or "mac-machine.local:8080"
-client_addr = "0.0.0.0:8080"
+client_addr = "127.0.0.1:8080"
 
 # Screen width in pixels (for edge detection)
 # Default: 1920
