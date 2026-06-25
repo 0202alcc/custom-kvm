@@ -5,26 +5,32 @@ use crate::error::Result;
 /// Server-side configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
-    /// Address to bind the UDP socket to
+    #[serde(default = "default_bind_addr")]
     pub bind_addr: String,
-    /// Address of the client to send events to
+    #[serde(default = "default_client_addr")]
     pub client_addr: String,
-    /// Screen width in pixels
+    #[serde(default = "default_screen_width")]
     pub screen_width: i32,
-    /// Screen height in pixels
+    #[serde(default = "default_screen_height")]
     pub screen_height: i32,
-    /// Log level (debug, info, warn, error)
+    #[serde(default = "default_log_level")]
     pub log_level: String,
 }
+
+fn default_bind_addr() -> String { "0.0.0.0:49152".to_string() }
+fn default_client_addr() -> String { "127.0.0.1:49152".to_string() }
+fn default_screen_width() -> i32 { 1920 }
+fn default_screen_height() -> i32 { 1080 }
+fn default_log_level() -> String { "debug".to_string() }
 
 impl Default for ServerConfig {
     fn default() -> Self {
         ServerConfig {
-            bind_addr: "0.0.0.0:8080".to_string(),
-            client_addr: "127.0.0.1:8080".to_string(),
-            screen_width: 1920,
-            screen_height: 1080,
-            log_level: "info".to_string(),
+            bind_addr: default_bind_addr(),
+            client_addr: default_client_addr(),
+            screen_width: default_screen_width(),
+            screen_height: default_screen_height(),
+            log_level: default_log_level(),
         }
     }
 }
@@ -50,17 +56,22 @@ impl ServerConfig {
 /// Client-side configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientConfig {
-    /// Address to bind the UDP socket to
+    #[serde(default = "default_bind_addr")]
     pub bind_addr: String,
-    /// Log level (debug, info, warn, error)
+    #[serde(default = "default_server_addr")]
+    pub server_addr: String,
+    #[serde(default = "default_log_level")]
     pub log_level: String,
 }
+
+fn default_server_addr() -> String { "127.0.0.1:49152".to_string() }
 
 impl Default for ClientConfig {
     fn default() -> Self {
         ClientConfig {
-            bind_addr: "0.0.0.0:8080".to_string(),
-            log_level: "info".to_string(),
+            bind_addr: default_bind_addr(),
+            server_addr: default_server_addr(),
+            log_level: default_log_level(),
         }
     }
 }
@@ -94,8 +105,8 @@ mod tests {
     #[test]
     fn test_server_config_default() {
         let config = ServerConfig::default();
-        assert_eq!(config.bind_addr, "0.0.0.0:8080");
-        assert_eq!(config.client_addr, "127.0.0.1:8080");
+        assert_eq!(config.bind_addr, "0.0.0.0:49152");
+        assert_eq!(config.client_addr, "127.0.0.1:49152");
         assert_eq!(config.screen_width, 1920);
         assert_eq!(config.screen_height, 1080);
         assert_eq!(config.log_level, "info");
@@ -104,7 +115,7 @@ mod tests {
     #[test]
     fn test_client_config_default() {
         let config = ClientConfig::default();
-        assert_eq!(config.bind_addr, "0.0.0.0:8080");
+        assert_eq!(config.bind_addr, "0.0.0.0:49152");
         assert_eq!(config.log_level, "info");
     }
 
